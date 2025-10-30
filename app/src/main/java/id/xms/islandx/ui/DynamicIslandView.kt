@@ -1,7 +1,9 @@
 package id.xms.islandx.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -14,10 +16,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import id.xms.islandx.data.IslandSettings
 import id.xms.islandx.data.IslandSize
@@ -26,11 +32,9 @@ import id.xms.islandx.ui.theme.*
 import id.xms.islandx.utils.CutoutInfo
 import id.xms.islandx.utils.DisplayCutoutHelper
 import java.util.Locale
+import kotlin.random.Random
+import kotlinx.coroutines.delay
 
-/**
- * Main Dynamic Island Overlay Composable
- * Displays interactive island with adaptive size based on content
- */
 @Composable
 fun DynamicIslandOverlay(
     state: IslandState,
@@ -42,13 +46,33 @@ fun DynamicIslandOverlay(
 ) {
     val density = LocalDensity.current
 
-    val targetSize = when (state) {
-        is IslandState.Idle -> IslandSize.COMPACT
-        is IslandState.Music, is IslandState.Call -> IslandSize.LARGE
-        else -> IslandSize.EXPANDED
+    // Music punya state tersendiri untuk expand on button click
+    var isMusicExpanded by remember { mutableStateOf(false) }
+    var musicExpandTimer by remember { mutableStateOf(false) }
+
+    // Reset music expanded setelah 3 detik
+    LaunchedEffect(musicExpandTimer) {
+        if (musicExpandTimer) {
+            delay(3000)
+            isMusicExpanded = false
+            musicExpandTimer = false
+        }
     }
 
-    // Calculate optimal width based on cutout
+    val targetSize = remember(state, isMusicExpanded) {
+        when {
+            state is IslandState.Music && isMusicExpanded -> IslandSize.EXPANDED // Music expanded saat button click
+            state is IslandState.Music -> IslandSize.COMPACT // Music tetap compact
+            state is IslandState.Idle -> IslandSize.COMPACT
+            state is IslandState.Call -> IslandSize.LARGE
+            state is IslandState.Notification || state is IslandState.Timer || state is IslandState.Recording -> IslandSize.EXPANDED
+            else -> IslandSize.COMPACT
+        }
+    }
+
+    val baseWidth = settings.width.dp
+    val baseHeight = settings.height.dp
+
     val maxWidth = with(density) {
         DisplayCutoutHelper.calculateOptimalWidth(
             cutoutInfo = cutoutInfo,
@@ -57,13 +81,20 @@ fun DynamicIslandOverlay(
         ).toDp()
     }
 
-    // Animated width based on island state
+    val targetWidth: Dp = when (targetSize) {
+        IslandSize.COMPACT -> baseWidth
+        IslandSize.EXPANDED -> baseWidth * 0.78f
+        IslandSize.LARGE -> baseWidth
+    }
+
+    val targetHeight: Dp = when (targetSize) {
+        IslandSize.COMPACT -> baseHeight
+        IslandSize.EXPANDED -> baseHeight * 1.67f
+        IslandSize.LARGE -> baseHeight * 2.5f
+    }
+
     val animatedWidth by animateDpAsState(
-        targetValue = when (targetSize) {
-            IslandSize.COMPACT -> minOf(120.dp, maxWidth)
-            IslandSize.EXPANDED -> minOf(280.dp, maxWidth)
-            IslandSize.LARGE -> minOf(maxWidth, 360.dp)
-        },
+        targetValue = minOf(targetWidth, maxWidth),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
@@ -71,15 +102,8 @@ fun DynamicIslandOverlay(
         label = "island_width_animation"
     )
 
-    val baseHeight = settings.height.dp
-
-    // Animated height based on island state
     val animatedHeight by animateDpAsState(
-        targetValue = when (targetSize) {
-            IslandSize.COMPACT -> baseHeight
-            IslandSize.EXPANDED -> baseHeight * 1.67f
-            IslandSize.LARGE -> baseHeight * 2.5f
-        },
+        targetValue = targetHeight,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
@@ -87,14 +111,12 @@ fun DynamicIslandOverlay(
         label = "island_height_animation"
     )
 
-    // Shape based on size
     val shape = when (targetSize) {
         IslandSize.COMPACT -> IslandCompactShape
         IslandSize.EXPANDED -> IslandExpandedShape
         IslandSize.LARGE -> IslandLargeShape
     }
 
-    // Check if island will overlap with cutout
     val isOverlapping = with(density) {
         DisplayCutoutHelper.willOverlapCutout(
             cutoutInfo = cutoutInfo,
@@ -105,7 +127,6 @@ fun DynamicIslandOverlay(
         )
     }
 
-    // Main island container
     Box(
         modifier = modifier
             .width(animatedWidth)
@@ -126,28 +147,42 @@ fun DynamicIslandOverlay(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
             )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Animated content based on state
         AnimatedContent(
             targetState = state,
             label = "island_content_animation"
         ) { currentState ->
-            when (currentState) {
-                is IslandState.Idle -> IdleContent()
-                is IslandState.Music -> MusicContent(currentState)
-                is IslandState.Call -> CallContent(currentState)
-                is IslandState.Notification -> NotificationContent(currentState)
-                is IslandState.Timer -> TimerContent(currentState)
-                is IslandState.Recording -> RecordingContent(currentState)
+            when {
+                currentState is IslandState.Idle -> IdleContent()
+                currentState is IslandState.Music -> {
+                    if (isMusicExpanded) {
+                        MusicContentExpanded(
+                            currentState,
+                            onButtonClick = { musicExpandTimer = true }
+                        )
+                    } else {
+                        MusicContentCompact(
+                            currentState,
+                            onButtonClick = {
+                                isMusicExpanded = true
+                                musicExpandTimer = true
+                            }
+                        )
+                    }
+                }
+                currentState is IslandState.Call -> CallContent(currentState)
+                currentState is IslandState.Notification -> NotificationContent(currentState)
+                currentState is IslandState.Timer -> TimerContent(currentState)
+                currentState is IslandState.Recording -> RecordingContent(currentState)
             }
         }
     }
 }
 
 /**
- * Idle state content - pulsing indicator
+ * Idle state content
  */
 @Composable
 private fun IdleContent() {
@@ -186,72 +221,231 @@ private fun IdleContent() {
 }
 
 /**
- * Music player content with controls
+ * Audio Visualizer - 3 bars
  */
 @Composable
-private fun MusicContent(state: IslandState.Music) {
-    Row(
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Song info
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = state.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+private fun AudioVisualizer(
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier,
+    barCount: Int = 3
+) {
+    val barHeights = remember { List(barCount) { mutableFloatStateOf(0.3f) } }
+
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            while (true) {
+                barHeights.forEachIndexed { _, heightState ->
+                    val targetHeight = Random.nextFloat() * 0.7f + 0.3f
+
+                    animate(
+                        initialValue = heightState.floatValue,
+                        targetValue = targetHeight,
+                        animationSpec = tween(
+                            durationMillis = Random.nextInt(200, 400),
+                            easing = FastOutSlowInEasing
+                        )
+                    ) { value, _ ->
+                        heightState.floatValue = value
+                    }
+                }
+                kotlinx.coroutines.delay(Random.nextLong(100, 300))
+            }
+        } else {
+            barHeights.forEach { heightState ->
+                animate(
+                    initialValue = heightState.floatValue,
+                    targetValue = 0.2f,
+                    animationSpec = tween(durationMillis = 300)
+                ) { value, _ ->
+                    heightState.floatValue = value
+                }
+            }
+        }
+    }
+
+    Canvas(modifier = modifier) {
+        val barWidth = size.width / (barCount * 2 - 1)
+        val maxBarHeight = size.height
+
+        barHeights.forEachIndexed { index, heightState ->
+            val barHeight = maxBarHeight * heightState.floatValue
+            val x = index * barWidth * 2
+            val y = (maxBarHeight - barHeight) / 2
+
+            drawRoundRect(
+                color = IslandAccent,
+                topLeft = Offset(x, y),
+                size = Size(barWidth, barHeight),
+                cornerRadius = CornerRadius(barWidth / 2, barWidth / 2)
             )
-            Text(
-                text = state.artist,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.7f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+        }
+    }
+}
+
+/**
+ * Music compact - kecil seperti idle
+ * Album | Visualizer | Skip buttons
+ */
+@Composable
+private fun MusicContentCompact(
+    state: IslandState.Music,
+    onButtonClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Album art (kiri)
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(MaterialTheme.shapes.small)
+                .background(IslandAccent.copy(alpha = 0.3f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.MusicNote,
+                contentDescription = null,
+                tint = IslandAccent,
+                modifier = Modifier.size(12.dp)
             )
         }
 
-        Spacer(modifier = Modifier.width(12.dp))
+        // Audio Visualizer (tengah)
+        AudioVisualizer(
+            isPlaying = state.isPlaying,
+            modifier = Modifier
+                .width(24.dp)
+                .height(18.dp)
+        )
 
-        // Playback controls
+        // Skip Previous
+        IconButton(
+            onClick = { onButtonClick() },
+            modifier = Modifier.size(18.dp),
+            content = {
+                Icon(
+                    imageVector = Icons.Default.SkipPrevious,
+                    contentDescription = "Previous",
+                    tint = IslandAccent,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        )
+
+        // Play/Pause
+        IconButton(
+            onClick = { onButtonClick() },
+            modifier = Modifier.size(18.dp),
+            content = {
+                Icon(
+                    imageVector = if (state.isPlaying) Icons.Default.Pause
+                    else Icons.Default.PlayArrow,
+                    contentDescription = if (state.isPlaying) "Pause" else "Play",
+                    tint = IslandAccent,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        )
+
+        // Skip Next
+        IconButton(
+            onClick = { onButtonClick() },
+            modifier = Modifier.size(18.dp),
+            content = {
+                Icon(
+                    imageVector = Icons.Default.SkipNext,
+                    contentDescription = "Next",
+                    tint = IslandAccent,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        )
+    }
+}
+
+/**
+ * Music expanded - tampil title + artist
+ */
+@Composable
+private fun MusicContentExpanded(
+    state: IslandState.Music,
+    onButtonClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Title
+        Text(
+            text = state.title,
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Artist
+        Text(
+            text = state.artist,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.7f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Compact controls saat expanded
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = { /* Handle previous */ },
-                modifier = Modifier.size(32.dp)
+                onClick = { onButtonClick() },
+                modifier = Modifier.size(24.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "Previous",
-                    tint = IslandAccent
+                    tint = IslandAccent,
+                    modifier = Modifier.size(14.dp)
                 )
             }
 
             IconButton(
-                onClick = { /* Handle play/pause */ },
-                modifier = Modifier.size(32.dp)
+                onClick = { onButtonClick() },
+                modifier = Modifier.size(24.dp)
             ) {
                 Icon(
                     imageVector = if (state.isPlaying) Icons.Default.Pause
                     else Icons.Default.PlayArrow,
                     contentDescription = if (state.isPlaying) "Pause" else "Play",
-                    tint = IslandAccent
+                    tint = IslandAccent,
+                    modifier = Modifier.size(14.dp)
                 )
             }
 
             IconButton(
-                onClick = { /* Handle next */ },
-                modifier = Modifier.size(32.dp)
+                onClick = { onButtonClick() },
+                modifier = Modifier.size(24.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Next",
-                    tint = IslandAccent
+                    tint = IslandAccent,
+                    modifier = Modifier.size(14.dp)
                 )
             }
         }
@@ -259,7 +453,7 @@ private fun MusicContent(state: IslandState.Music) {
 }
 
 /**
- * Phone call content with controls
+ * Call content
  */
 @Composable
 private fun CallContent(state: IslandState.Call) {
@@ -268,7 +462,6 @@ private fun CallContent(state: IslandState.Call) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Caller info
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f)
@@ -300,13 +493,11 @@ private fun CallContent(state: IslandState.Call) {
             }
         }
 
-        // Call controls
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // End call button
             IconButton(
-                onClick = { /* Handle end call */ },
+                onClick = { },
                 modifier = Modifier
                     .size(40.dp)
                     .background(ErrorRed40, shape = MaterialTheme.shapes.extraLarge)
@@ -318,10 +509,9 @@ private fun CallContent(state: IslandState.Call) {
                 )
             }
 
-            // Answer button (only for incoming calls)
             if (state.isIncoming) {
                 IconButton(
-                    onClick = { /* Handle answer call */ },
+                    onClick = { },
                     modifier = Modifier
                         .size(40.dp)
                         .background(ExpressiveTeal40, shape = MaterialTheme.shapes.extraLarge)
@@ -347,7 +537,6 @@ private fun NotificationContent(state: IslandState.Notification) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // App icon placeholder
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -365,7 +554,6 @@ private fun NotificationContent(state: IslandState.Notification) {
             )
         }
 
-        // Notification text
         Column(
             modifier = Modifier.weight(1f)
         ) {
@@ -388,7 +576,7 @@ private fun NotificationContent(state: IslandState.Notification) {
 }
 
 /**
- * Timer content with circular progress
+ * Timer content
  */
 @Composable
 private fun TimerContent(state: IslandState.Timer) {
@@ -397,7 +585,6 @@ private fun TimerContent(state: IslandState.Timer) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Circular progress indicator
         CircularProgressIndicator(
             progress = { state.remainingTime.toFloat() / state.totalTime.toFloat() },
             modifier = Modifier.size(32.dp),
@@ -405,7 +592,6 @@ private fun TimerContent(state: IslandState.Timer) {
             strokeWidth = 3.dp,
         )
 
-        // Timer info
         Column {
             Text(
                 text = "Timer",
@@ -422,7 +608,7 @@ private fun TimerContent(state: IslandState.Timer) {
 }
 
 /**
- * Recording indicator content
+ * Recording content
  */
 @Composable
 private fun RecordingContent(state: IslandState.Recording) {
@@ -433,7 +619,6 @@ private fun RecordingContent(state: IslandState.Recording) {
     ) {
         var alpha by remember { mutableFloatStateOf(1f) }
 
-        // Pulsing recording indicator
         LaunchedEffect(state.isPaused) {
             if (!state.isPaused) {
                 while (true) {
@@ -457,7 +642,6 @@ private fun RecordingContent(state: IslandState.Recording) {
             }
         }
 
-        // Recording dot
         Box(
             modifier = Modifier
                 .size(12.dp)
@@ -467,7 +651,6 @@ private fun RecordingContent(state: IslandState.Recording) {
                 )
         )
 
-        // Recording info
         Column {
             Text(
                 text = "Recording",
@@ -483,7 +666,6 @@ private fun RecordingContent(state: IslandState.Recording) {
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Play/Pause indicator
         Icon(
             imageVector = if (state.isPaused) Icons.Default.PlayArrow
             else Icons.Default.Pause,
@@ -493,9 +675,6 @@ private fun RecordingContent(state: IslandState.Recording) {
     }
 }
 
-/**
- * Format duration in milliseconds to HH:MM:SS or MM:SS
- */
 private fun formatDuration(millis: Long): String {
     val seconds = (millis / 1000) % 60
     val minutes = (millis / (1000 * 60)) % 60
