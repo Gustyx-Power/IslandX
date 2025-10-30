@@ -7,11 +7,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.os.Build
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import androidx.compose.runtime.Recomposer
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.compositionContext
@@ -22,6 +23,7 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.compose.runtime.Recomposer
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
@@ -43,13 +45,16 @@ class IslandAccessibilityService : AccessibilityService(),
     ViewModelStoreOwner,
     SavedStateRegistryOwner {
 
+    companion object {
+        private const val TAG = "IslandAccessibility"
+    }
+
     private var windowManager: WindowManager? = null
     private var overlayView: ComposeView? = null
     private lateinit var viewModel: IslandViewModel
     private lateinit var preferencesManager: IslandPreferencesManager
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    // Lifecycle components
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val store = ViewModelStore()
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
@@ -59,15 +64,29 @@ class IslandAccessibilityService : AccessibilityService(),
 
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            Log.d(TAG, "Broadcast received: ${intent?.action}")
+
             when (intent?.action) {
                 NotificationListener.ACTION_NOTIFICATION_POSTED -> {
                     val appName = intent.getStringExtra(NotificationListener.EXTRA_APP_NAME) ?: return
                     val title = intent.getStringExtra(NotificationListener.EXTRA_TITLE) ?: ""
                     val text = intent.getStringExtra(NotificationListener.EXTRA_TEXT) ?: ""
 
+                    Log.d(TAG, "Notification: app=$appName, title=$title, text=$text")
                     viewModel.showNotification(appName, title, text)
                 }
+
+                NotificationListener.ACTION_MUSIC_UPDATED -> {
+                    val title = intent.getStringExtra(NotificationListener.EXTRA_TITLE) ?: "Unknown"
+                    val artist = intent.getStringExtra(NotificationListener.EXTRA_ARTIST) ?: "Unknown Artist"
+                    val isPlaying = intent.getBooleanExtra(NotificationListener.EXTRA_IS_PLAYING, false)
+
+                    Log.d(TAG, "Music: title=$title, artist=$artist, playing=$isPlaying")
+                    viewModel.showMusic(title, artist, isPlaying)
+                }
+
                 NotificationListener.ACTION_NOTIFICATION_REMOVED -> {
+                    Log.d(TAG, "Notification removed")
                     viewModel.dismissIsland()
                 }
             }
@@ -86,32 +105,40 @@ class IslandAccessibilityService : AccessibilityService(),
     override fun onServiceConnected() {
         super.onServiceConnected()
 
-        // Initialize SavedStateRegistry
-        savedStateRegistryController.performRestore(null)
+        Log.d(TAG, "Service connected")
 
-        // Initialize lifecycle
+        savedStateRegistryController.performRestore(null)
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
 
         viewModel = IslandViewModel()
         preferencesManager = IslandPreferencesManager(this)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Register notification receiver
+        // Register notification receiver dengan music action
         val filter = IntentFilter().apply {
             addAction(NotificationListener.ACTION_NOTIFICATION_POSTED)
             addAction(NotificationListener.ACTION_NOTIFICATION_REMOVED)
+            addAction(NotificationListener.ACTION_MUSIC_UPDATED)  // ← Tambah action music
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(notificationReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(notificationReceiver, filter)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(notificationReceiver, filter, RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                registerReceiver(notificationReceiver, filter)
+            }
+            Log.d(TAG, "Receiver registered successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register receiver", e)
         }
 
         // Collect settings and update overlay
         serviceScope.launch {
             preferencesManager.settingsFlow.collectLatest { settings ->
+                Log.d(TAG, "Settings updated: autoHideDelay=${settings.autoHideDelay}")
+                viewModel.setAutoHideDelay(settings.autoHideDelay)
+
                 if (overlayView == null) {
                     setupOverlay(settings)
                 } else {
@@ -137,6 +164,10 @@ class IslandAccessibilityService : AccessibilityService(),
     }
 
     private fun setupOverlay(settings: id.xms.islandx.data.IslandSettings) {
+        Log.d(TAG, "Setting up overlay")
+
+        viewModel.setAutoHideDelay(settings.autoHideDelay)
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -151,7 +182,6 @@ class IslandAccessibilityService : AccessibilityService(),
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
 
-            // Enable drawing in cutout area for Android P+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -161,21 +191,17 @@ class IslandAccessibilityService : AccessibilityService(),
         layoutParams = params
 
         overlayView = ComposeView(this).apply {
-            // Set all required ViewTree owners BEFORE setContent
             setViewTreeLifecycleOwner(this@IslandAccessibilityService)
             setViewTreeViewModelStoreOwner(this@IslandAccessibilityService)
             setViewTreeSavedStateRegistryOwner(this@IslandAccessibilityService)
 
-            // Set up Recomposer for the service context
             val recomposer = Recomposer(serviceScope.coroutineContext)
             compositionContext = recomposer
 
-            // Launch recomposer
             serviceScope.launch(AndroidUiDispatcher.Main) {
                 recomposer.runRecomposeAndApplyChanges()
             }
 
-            // Detect cutout when view is attached
             addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -191,12 +217,11 @@ class IslandAccessibilityService : AccessibilityService(),
 
             setContent {
                 IslandXTheme {
-                    val state = viewModel.islandState.value
-                    val currentSettings = settings
+                    val state by viewModel.islandState
 
                     DynamicIslandOverlay(
                         state = state,
-                        settings = currentSettings,
+                        settings = settings,
                         cutoutInfo = cutoutInfo,
                         onIslandClick = {
                             viewModel.onIslandClick()
@@ -211,8 +236,9 @@ class IslandAccessibilityService : AccessibilityService(),
 
         try {
             windowManager?.addView(overlayView, params)
+            Log.d(TAG, "Overlay added successfully")
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to add overlay", e)
         }
     }
 
@@ -245,19 +271,20 @@ class IslandAccessibilityService : AccessibilityService(),
     }
 
     override fun onInterrupt() {
-        // Handle interrupt
+        Log.d(TAG, "Service interrupted")
     }
 
     override fun onDestroy() {
         super.onDestroy()
 
-        // Clean up lifecycle
+        Log.d(TAG, "Service destroyed")
+
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
 
         try {
             unregisterReceiver(notificationReceiver)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to unregister receiver", e)
         }
 
         overlayView?.let {
