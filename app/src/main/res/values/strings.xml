@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">IslandX</string>
+    <string name="accessibility_service_description">
+        Layanan ini digunakan untuk menampilkan Dynamic Island di atas aplikasi lain.
+        IslandX memerlukan izin aksesibilitas untuk menampilkan overlay interaktif
+        yang menampilkan notifikasi, musik, panggilan, dan informasi lainnya.
+    </string>
 </resources>
