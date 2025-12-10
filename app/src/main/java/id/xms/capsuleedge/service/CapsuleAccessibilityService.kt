@@ -72,6 +72,9 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     
     // Progress polling job for media
     private var mediaProgressJob: Job? = null
+    
+    // Job to auto-dismiss media after pause timeout (1 minute)
+    private var mediaPauseTimeoutJob: Job? = null
 
     // Charging receiver
     private var chargingReceiver: BroadcastReceiver? = null
@@ -174,9 +177,9 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
             AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> {
                 handleNotificationEvent(event)
             }
-            AccessibilityEvent.TYPE_VIEW_CLICKED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // When user clicks anywhere or window changes, collapse the expanded island
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                // Only collapse when user explicitly clicks in another app
+                // Removed TYPE_WINDOW_STATE_CHANGED to prevent auto-collapse during screen recording
                 handleOutsideTouch(event)
             }
             else -> { /* Ignore */ }
@@ -185,16 +188,30 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     
     /**
      * Handle touch outside the island - collapse if expanded
+     * Only triggered by explicit user clicks, not window changes
      */
     private fun handleOutsideTouch(event: AccessibilityEvent) {
         val currentState = IslandStateRepository.uiState.value
-        val eventPackage = event.packageName?.toString()
+        val eventPackage = event.packageName?.toString() ?: return
+        
+        // Ignore screen recorders and system UI packages
+        val ignoredForCollapse = setOf(
+            "com.android.systemui",
+            "com.miui.screenrecorder",
+            "com.samsung.android.app.screenrecorder",
+            "com.google.android.apps.recorder",
+            "com.heytap.screenrecorder",
+            "com.coloros.screenrecorder",
+            "com.vivo.screenrecorder",
+            "com.asus.screenrecorder",
+            "com.zte.screenrecorder"
+        )
+        
+        if (eventPackage in ignoredForCollapse) return
+        if (eventPackage == packageName) return
 
-        // Only collapse if island is expanded and the click is from another app (not our overlay)
-        if (currentState.displayState == IslandState.EXPANDED &&
-            eventPackage != null &&
-            eventPackage != packageName) {
-            // Collapse the island when user interacts outside
+        // Only collapse if island is expanded and the click is from another app
+        if (currentState.displayState == IslandState.EXPANDED) {
             IslandStateRepository.collapseIsland()
             updateTouchHandling(false)
         }
@@ -394,13 +411,27 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         
         IslandStateRepository.pushEvent(notificationEvent)
         
-        handler.postDelayed({
+        // Auto-dismiss notification after 5 seconds
+        // First collapse, then dismiss after 1 more second
+        serviceScope.launch {
+            delay(5000) // Wait 5 seconds
+            
             val currentEvent = IslandStateRepository.uiState.value.currentEvent
             if (currentEvent is IslandEvent.Notification && 
                 currentEvent.timestamp == notificationEvent.timestamp) {
-                IslandStateRepository.dismissCurrentEvent()
+                // First collapse the island
+                IslandStateRepository.collapseIsland()
+                
+                // Wait 1 second for collapse animation, then dismiss
+                delay(1000)
+                
+                val stillSameEvent = IslandStateRepository.uiState.value.currentEvent
+                if (stillSameEvent is IslandEvent.Notification && 
+                    stillSameEvent.timestamp == notificationEvent.timestamp) {
+                    IslandStateRepository.dismissCurrentEvent()
+                }
             }
-        }, 5000)
+        }
     }
     
     private fun isMediaNotification(notification: Notification): Boolean {
@@ -563,9 +594,15 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
                 currentEvent.packageName == controller.packageName) {
                 IslandStateRepository.updateMediaPlayState(false)
                 stopMediaProgressPolling()
+                
+                // Start 1 minute timeout to dismiss media if still paused
+                startMediaPauseTimeout(controller.packageName)
             }
             return
         }
+        
+        // Music is playing, cancel any pause timeout
+        cancelMediaPauseTimeout()
         
         val title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE) 
             ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE) 
@@ -628,13 +665,21 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
                 IslandStateRepository.expandIsland()
             }
             IslandState.EXPANDED -> {
-                // When expanded and tapped, open the app and dismiss
-                if (currentState.currentEvent is IslandEvent.Notification ||
-                    currentState.currentEvent is IslandEvent.MediaPlayback) {
-                    openEventApp(currentState.currentEvent)
-                    IslandStateRepository.dismissCurrentEvent()
-                } else {
-                    IslandStateRepository.collapseIsland()
+                when (val event = currentState.currentEvent) {
+                    is IslandEvent.Notification -> {
+                        // For notifications: open app and dismiss
+                        openEventApp(event)
+                        IslandStateRepository.dismissCurrentEvent()
+                    }
+                    is IslandEvent.MediaPlayback -> {
+                        // For media: just collapse, don't dismiss (music still playing)
+                        // User can control media from the compact/collapsed island
+                        IslandStateRepository.collapseIsland()
+                    }
+                    else -> {
+                        // For other events: just collapse
+                        IslandStateRepository.collapseIsland()
+                    }
                 }
             }
         }
@@ -771,6 +816,33 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     private fun stopMediaProgressPolling() {
         mediaProgressJob?.cancel()
         mediaProgressJob = null
+    }
+    
+    /**
+     * Start timeout to dismiss media after 1 minute of pause
+     */
+    private fun startMediaPauseTimeout(packageName: String) {
+        cancelMediaPauseTimeout() // Cancel any existing timeout
+        
+        mediaPauseTimeoutJob = serviceScope.launch {
+            delay(60_000) // Wait 1 minute (60 seconds)
+            
+            val currentEvent = IslandStateRepository.uiState.value.currentEvent
+            if (currentEvent is IslandEvent.MediaPlayback && 
+                currentEvent.packageName == packageName &&
+                !currentEvent.isPlaying) {
+                // Still paused after 1 minute, dismiss the media event
+                IslandStateRepository.dismissCurrentEvent()
+            }
+        }
+    }
+    
+    /**
+     * Cancel media pause timeout
+     */
+    private fun cancelMediaPauseTimeout() {
+        mediaPauseTimeoutJob?.cancel()
+        mediaPauseTimeoutJob = null
     }
 }
 
