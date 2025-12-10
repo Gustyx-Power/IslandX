@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,9 +15,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,10 +27,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.xms.capsuleedge.domain.model.IslandEvent
 import id.xms.capsuleedge.service.MediaAction
-import kotlin.math.sin
 
 /**
  * Media playback content displayed in the Island
+ * Features iOS-like Dynamic Island music player UI
  */
 @Composable
 fun MediaContent(
@@ -35,53 +38,50 @@ fun MediaContent(
     isExpanded: Boolean,
     onMediaAction: (MediaAction) -> Unit
 ) {
-    if (isExpanded) {
-        ExpandedMediaContent(event, onMediaAction)
-    } else {
-        CompactMediaContent(event)
+    AnimatedContent(
+        targetState = isExpanded,
+        transitionSpec = {
+            fadeIn(animationSpec = tween(200)) togetherWith
+                    fadeOut(animationSpec = tween(200))
+        },
+        label = "media_content"
+    ) { expanded ->
+        if (expanded) {
+            ExpandedMediaContent(event, onMediaAction)
+        } else {
+            CompactMediaContent(event, onMediaAction)
+        }
     }
 }
 
+/**
+ * Compact media view - shows album art, title, and mini visualizer
+ */
 @Composable
-private fun CompactMediaContent(event: IslandEvent.MediaPlayback) {
+private fun CompactMediaContent(
+    event: IslandEvent.MediaPlayback,
+    onMediaAction: (MediaAction) -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Album art or placeholder
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF2A2A2A))
-        ) {
-            event.albumArt?.let { art ->
-                Image(
-                    bitmap = art.asImageBitmap(),
-                    contentDescription = "Album Art",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } ?: run {
-                Icon(
-                    imageVector = Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier
-                        .size(18.dp)
-                        .align(Alignment.Center)
-                )
-            }
-        }
+        // Left: Spinning album art (when playing)
+        SpinningAlbumArt(
+            albumArt = event.albumArt,
+            isPlaying = event.isPlaying,
+            size = 36
+        )
         
-        // Title with scrolling effect for long text
+        Spacer(modifier = Modifier.width(10.dp))
+        
+        // Center: Title and artist
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 8.dp)
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
         ) {
             Text(
                 text = event.title,
@@ -100,20 +100,26 @@ private fun CompactMediaContent(event: IslandEvent.MediaPlayback) {
             )
         }
         
-        // Mini visualizer when playing
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        // Right: Mini visualizer or pause icon
         if (event.isPlaying) {
             MiniVisualizer()
         } else {
+            // Pause indicator
             Icon(
-                imageVector = Icons.Filled.Pause,
+                imageVector = Icons.Filled.PlayArrow,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.6f),
-                modifier = Modifier.size(18.dp)
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
             )
         }
     }
 }
 
+/**
+ * Expanded media view - full player with controls
+ */
 @Composable
 private fun ExpandedMediaContent(
     event: IslandEvent.MediaPlayback,
@@ -122,23 +128,24 @@ private fun ExpandedMediaContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // Album art and info row
+        // Top row: Album art, track info, and waveform
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Large album art
+            // Large album art with rounded corners
             Box(
                 modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Color(0xFF3A3A3A), Color(0xFF2A2A2A))
+                            colors = listOf(Color(0xFF2A2A2A), Color(0xFF1A1A1A))
                         )
                     )
             ) {
@@ -153,27 +160,35 @@ private fun ExpandedMediaContent(
                     Icon(
                         imageVector = Icons.Filled.MusicNote,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.3f),
+                        tint = Color.White.copy(alpha = 0.4f),
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(32.dp)
                             .align(Alignment.Center)
                     )
                 }
             }
             
-            // Track info
+            // Track info with marquee for long text
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.Center
             ) {
+                // Title with marquee effect
                 Text(
                     text = event.title,
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        velocity = 30.dp
+                    )
                 )
+                
+                Spacer(modifier = Modifier.height(2.dp))
+                
                 Text(
                     text = event.artist,
                     color = Color.White.copy(alpha = 0.6f),
@@ -183,29 +198,42 @@ private fun ExpandedMediaContent(
                 )
             }
             
-            // Visualizer
+            // Waveform visualizer on the right
             if (event.isPlaying) {
-                ExpandedVisualizer()
+                WaveformVisualizer()
             }
         }
+        
+        Spacer(modifier = Modifier.height(10.dp))
         
         // Progress bar
         if (event.duration > 0) {
             val progress = (event.position.toFloat() / event.duration.toFloat()).coerceIn(0f, 1f)
             
             Column {
-                LinearProgressIndicator(
-                    progress = { progress },
+                // Progress track
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = Color.White,
-                    trackColor = Color.White.copy(alpha = 0.2f),
-                )
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.15f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progress)
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(Color.White, Color.White.copy(alpha = 0.8f))
+                                )
+                            )
+                    )
+                }
                 
                 Spacer(modifier = Modifier.height(4.dp))
                 
+                // Time labels
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -224,54 +252,120 @@ private fun ExpandedMediaContent(
             }
         }
         
-        // Media controls
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        // Media control buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Previous button
             IconButton(
-                onClick = { onMediaAction(MediaAction.PREVIOUS) }
+                onClick = { onMediaAction(MediaAction.PREVIOUS) },
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = Icons.Filled.SkipPrevious,
                     contentDescription = "Previous",
                     tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
             
-            // Large play/pause button
+            // Play/Pause button (larger, with background)
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(52.dp)
                     .clip(CircleShape)
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
                 IconButton(
-                    onClick = { onMediaAction(MediaAction.PLAY_PAUSE) }
+                    onClick = { onMediaAction(MediaAction.PLAY_PAUSE) },
+                    modifier = Modifier.size(52.dp)
                 ) {
                     Icon(
                         imageVector = if (event.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (event.isPlaying) "Pause" else "Play",
                         tint = Color.Black,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(30.dp)
                     )
                 }
             }
             
+            // Next button
             IconButton(
-                onClick = { onMediaAction(MediaAction.NEXT) }
+                onClick = { onMediaAction(MediaAction.NEXT) },
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = Icons.Filled.SkipNext,
                     contentDescription = "Next",
                     tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
         }
+    }
+}
+
+/**
+ * Spinning album art for compact view
+ */
+@Composable
+private fun SpinningAlbumArt(
+    albumArt: android.graphics.Bitmap?,
+    isPlaying: Boolean,
+    size: Int
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "spin")
+    
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(8000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+    
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(Color(0xFF2A2A2A))
+            .then(
+                if (isPlaying) Modifier.rotate(rotation) else Modifier
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        albumArt?.let { art ->
+            Image(
+                bitmap = art.asImageBitmap(),
+                contentDescription = "Album Art",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        } ?: run {
+            Icon(
+                imageVector = Icons.Filled.MusicNote,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.5f),
+                modifier = Modifier.size((size / 2).dp)
+            )
+        }
+        
+        // Center hole for vinyl effect
+        Box(
+            modifier = Modifier
+                .size((size / 4).dp)
+                .clip(CircleShape)
+                .background(Color.Black)
+        )
     }
 }
 
@@ -280,19 +374,21 @@ private fun ExpandedMediaContent(
  */
 @Composable
 private fun MiniVisualizer() {
-    val infiniteTransition = rememberInfiniteTransition(label = "visualizer")
+    val infiniteTransition = rememberInfiniteTransition(label = "mini_visualizer")
     
     Row(
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         repeat(3) { index ->
+            val delay = index * 100
             val animatedHeight by infiniteTransition.animateFloat(
                 initialValue = 4f,
-                targetValue = 14f,
+                targetValue = 16f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(
-                        durationMillis = 400 + (index * 100),
+                        durationMillis = 400,
+                        delayMillis = delay,
                         easing = FastOutSlowInEasing
                     ),
                     repeatMode = RepeatMode.Reverse
@@ -305,47 +401,53 @@ private fun MiniVisualizer() {
                     .width(3.dp)
                     .height(animatedHeight.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFF4CAF50))
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF4CAF50), Color(0xFF8BC34A))
+                        )
+                    )
             )
         }
     }
 }
 
 /**
- * Larger visualizer for expanded view
+ * Waveform visualizer for expanded view
  */
 @Composable
-private fun ExpandedVisualizer() {
-    val infiniteTransition = rememberInfiniteTransition(label = "expanded_visualizer")
+private fun WaveformVisualizer() {
+    val infiniteTransition = rememberInfiniteTransition(label = "waveform")
     
     Row(
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 4.dp)
     ) {
         repeat(5) { index ->
+            val phase = index * 0.5f
             val animatedHeight by infiniteTransition.animateFloat(
-                initialValue = 8f,
-                targetValue = 28f,
+                initialValue = 8f + (phase * 4f),
+                targetValue = 24f - (phase * 2f),
                 animationSpec = infiniteRepeatable(
                     animation = tween(
-                        durationMillis = 300 + (index * 80),
+                        durationMillis = 300 + (index * 50),
                         easing = FastOutSlowInEasing
                     ),
                     repeatMode = RepeatMode.Reverse
                 ),
-                label = "expanded_bar_$index"
+                label = "wave_$index"
             )
             
             Box(
                 modifier = Modifier
-                    .width(4.dp)
+                    .width(3.dp)
                     .height(animatedHeight.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(RoundedCornerShape(1.5.dp))
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
                                 Color(0xFF4CAF50),
-                                Color(0xFF8BC34A)
+                                Color(0xFF81C784)
                             )
                         )
                     )
