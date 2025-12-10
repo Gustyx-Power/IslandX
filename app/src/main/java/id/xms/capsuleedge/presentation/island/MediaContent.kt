@@ -102,17 +102,35 @@ private fun CompactMediaContent(
         
         Spacer(modifier = Modifier.width(8.dp))
         
-        // Right: Mini visualizer or pause icon
-        if (event.isPlaying) {
-            MiniVisualizer()
-        } else {
-            // Pause indicator
-            Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.size(20.dp)
-            )
+        // Right: Mini visualizer or pause icon + Stop button
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (event.isPlaying) {
+                MiniVisualizer()
+            } else {
+                // Pause indicator
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            
+            // Stop button (square icon) - dismisses media from capsule
+            IconButton(
+                onClick = { onMediaAction(MediaAction.STOP) },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Stop,
+                    contentDescription = "Stop",
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }
@@ -304,6 +322,19 @@ private fun ExpandedMediaContent(
                     contentDescription = "Next",
                     tint = Color.White,
                     modifier = Modifier.size(26.dp)
+                )
+            }
+            
+            // Stop button (square icon) - stops media and dismisses from capsule
+            IconButton(
+                onClick = { onMediaAction(MediaAction.STOP) },
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Stop,
+                    contentDescription = "Stop",
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
