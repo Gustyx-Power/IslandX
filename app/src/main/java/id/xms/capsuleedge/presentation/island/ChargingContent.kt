@@ -55,19 +55,17 @@ private fun CompactChargingContent(event: IslandEvent.Charging) {
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Animated battery icon with lightning
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = Icons.Rounded.BatteryChargingFull,
-                contentDescription = "Charging",
-                tint = Color(0xFF4CAF50).copy(alpha = glowAlpha),
-                modifier = Modifier.size(24.dp)
-            )
-        }
+        // Charging text (no icon)
+        Text(
+            text = if (event.isFastCharging) "Fast Charging" else "Charging",
+            color = Color(0xFF4CAF50).copy(alpha = glowAlpha),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
         
         // Battery percentage
         Text(
@@ -75,15 +73,6 @@ private fun CompactChargingContent(event: IslandEvent.Charging) {
             color = Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold
-        )
-        
-        Spacer(modifier = Modifier.weight(1f))
-        
-        // Charging indicator
-        Text(
-            text = if (event.isFastCharging) "Fast Charging" else "Charging",
-            color = Color(0xFF4CAF50).copy(alpha = 0.8f),
-            fontSize = 12.sp
         )
     }
 }
@@ -141,22 +130,13 @@ private fun ExpandedChargingContent(event: IslandEvent.Charging) {
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Bolt,
-                        contentDescription = null,
-                        tint = Color(0xFF4CAF50),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = "${event.batteryLevel}%",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                // Just battery percentage, no icon
+                Text(
+                    text = "${event.batteryLevel}%",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
         
@@ -165,11 +145,12 @@ private fun ExpandedChargingContent(event: IslandEvent.Charging) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            // Plain text without emoji/icon
             Text(
-                text = if (event.isFastCharging) "⚡ Fast Charging" else "🔌 Charging",
-                color = Color.White,
+                text = if (event.isFastCharging) "Fast Charging" else "Charging",
+                color = Color(0xFF4CAF50),
                 fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.SemiBold
             )
             
             // Estimated time (placeholder - would need actual calculation)

@@ -172,6 +172,22 @@ fun HomeScreen(
                 title = stringResource(R.string.settings_size),
                 icon = Icons.Filled.ZoomOutMap
             ) {
+                // Capsule Width
+                SliderSetting(
+                    label = "Capsule Width",
+                    value = config.collapsedWidth,
+                    valueRange = 80f..200f,
+                    onValueChange = { newValue ->
+                        scope.launch {
+                            settingsRepository.updateCollapsedWidth(newValue)
+                        }
+                    },
+                    valueFormat = { "${it.toInt()}dp" }
+                )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Scale
                 SliderSetting(
                     label = "Scale",
                     value = config.scale,

@@ -35,10 +35,10 @@ class SettingsRepository(private val context: Context) {
             scale = preferences[KEY_SCALE] ?: 1f,
             collapsedWidth = preferences[KEY_COLLAPSED_WIDTH] ?: 120f,
             collapsedHeight = preferences[KEY_COLLAPSED_HEIGHT] ?: 36f,
-            compactWidth = preferences[KEY_COMPACT_WIDTH] ?: 200f,
-            compactHeight = preferences[KEY_COMPACT_HEIGHT] ?: 48f,
-            expandedWidth = preferences[KEY_EXPANDED_WIDTH] ?: 340f,
-            expandedHeight = preferences[KEY_EXPANDED_HEIGHT] ?: 180f,
+            compactWidth = preferences[KEY_COMPACT_WIDTH] ?: 240f,
+            compactHeight = preferences[KEY_COMPACT_HEIGHT] ?: 56f,
+            expandedWidth = preferences[KEY_EXPANDED_WIDTH] ?: 380f,
+            expandedHeight = preferences[KEY_EXPANDED_HEIGHT] ?: 220f,
             cornerRadius = preferences[KEY_CORNER_RADIUS] ?: 24f
         )
     }
@@ -98,6 +98,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun updateScale(scale: Float) {
         context.dataStore.edit { preferences ->
             preferences[KEY_SCALE] = scale.coerceIn(0.5f, 2f)
+        }
+    }
+    
+    suspend fun updateCollapsedWidth(width: Float) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_COLLAPSED_WIDTH] = width.coerceIn(80f, 200f)
         }
     }
 }

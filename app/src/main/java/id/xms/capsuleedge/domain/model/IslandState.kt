@@ -29,10 +29,10 @@ data class IslandConfig(
     val scale: Float = 1f,
     val collapsedWidth: Float = 120f,
     val collapsedHeight: Float = 36f,
-    val compactWidth: Float = 200f,
-    val compactHeight: Float = 48f,
-    val expandedWidth: Float = 340f,
-    val expandedHeight: Float = 180f,
+    val compactWidth: Float = 240f,
+    val compactHeight: Float = 56f,
+    val expandedWidth: Float = 380f,  // Nearly screen width
+    val expandedHeight: Float = 220f, // Taller for content
     val cornerRadius: Float = 24f
 )
 

@@ -41,16 +41,20 @@ object IslandStateRepository {
     
     /**
      * Display a specific event in the Island
+     * Notifications auto-expand to show full content
      */
     fun displayEvent(event: IslandEvent) {
         _uiState.update { currentState ->
+            val displayState = when {
+                event is IslandEvent.Idle -> IslandState.COLLAPSED
+                // Auto-expand notifications so user can see full message and interact
+                event is IslandEvent.Notification -> IslandState.EXPANDED
+                else -> IslandState.COMPACT
+            }
+            
             currentState.copy(
                 currentEvent = event,
-                displayState = if (event is IslandEvent.Idle) {
-                    IslandState.COLLAPSED
-                } else {
-                    IslandState.COMPACT
-                }
+                displayState = displayState
             )
         }
     }
@@ -76,9 +80,22 @@ object IslandStateRepository {
             val newState = if (currentState.currentEvent is IslandEvent.Idle) {
                 IslandState.COLLAPSED
             } else {
-                IslandState.COMPACT
+                IslandState.COLLAPSED // Go to collapsed, not compact
             }
             currentState.copy(displayState = newState)
+        }
+    }
+    
+    /**
+     * Expand to COMPACT state (slightly larger, for brief animations)
+     */
+    fun expandToCompact() {
+        _uiState.update { currentState ->
+            if (currentState.currentEvent !is IslandEvent.Idle) {
+                currentState.copy(displayState = IslandState.COMPACT)
+            } else {
+                currentState
+            }
         }
     }
     

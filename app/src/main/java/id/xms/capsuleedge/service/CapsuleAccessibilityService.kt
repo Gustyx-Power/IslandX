@@ -433,10 +433,22 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
             isFastCharging = isFastCharging
         )
         
+        // Push event and briefly expand to show charging indicator
         IslandStateRepository.pushEvent(chargingEvent)
         
+        // Brief expand animation: expand wide for 4 seconds then collapse
         serviceScope.launch {
-            delay(3000)
+            // First, expand to EXPANDED to show the charging info clearly and wide
+            IslandStateRepository.expandIsland()
+            
+            // Wait 4 seconds to let user see the charging animation properly
+            delay(4000)
+            
+            // Collapse back to normal size (still showing charging indicator briefly)
+            IslandStateRepository.collapseIsland()
+            
+            // After 2 more seconds, dismiss the charging event entirely
+            delay(2000)
             val current = IslandStateRepository.uiState.value.currentEvent
             if (current is IslandEvent.Charging) {
                 IslandStateRepository.dismissCurrentEvent()
@@ -576,14 +588,22 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         when (currentState.displayState) {
             IslandState.COLLAPSED -> {
                 if (currentState.currentEvent !is IslandEvent.Idle) {
-                    IslandStateRepository.collapseIsland()
+                    IslandStateRepository.expandIsland()
                 }
             }
             IslandState.COMPACT -> {
-                openEventApp(currentState.currentEvent)
+                // Expand to show full content
+                IslandStateRepository.expandIsland()
             }
             IslandState.EXPANDED -> {
-                IslandStateRepository.collapseIsland()
+                // When expanded and tapped, open the app and dismiss
+                if (currentState.currentEvent is IslandEvent.Notification ||
+                    currentState.currentEvent is IslandEvent.MediaPlayback) {
+                    openEventApp(currentState.currentEvent)
+                    IslandStateRepository.dismissCurrentEvent()
+                } else {
+                    IslandStateRepository.collapseIsland()
+                }
             }
         }
     }

@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -181,11 +182,27 @@ private fun ExpandedNotificationContent(
         }
         
         // Action hint
-        Text(
-            text = "Tap to open",
-            color = Color.White.copy(alpha = 0.4f),
-            fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.End)
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF1E88E5),
+                            Color(0xFF00ACC1)
+                        )
+                    ),
+                    RoundedCornerShape(12.dp)
+                )
+                .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Tap to open & reply",
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
