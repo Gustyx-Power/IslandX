@@ -201,6 +201,51 @@ fun HomeScreen(
                 )
             }
             
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // Behavior settings
+            val hideInLandscape by settingsRepository.hideInLandscape.collectAsState(initial = true)
+            
+            SettingsCard(
+                title = "Behavior",
+                icon = Icons.Filled.Tune
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Hide in Landscape",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Hide capsule when playing games or watching videos",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 12.sp
+                        )
+                    }
+                    
+                    Switch(
+                        checked = hideInLandscape,
+                        onCheckedChange = { enabled ->
+                            scope.launch {
+                                settingsRepository.setHideInLandscape(enabled)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF4CAF50),
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = Color.White.copy(alpha = 0.2f)
+                        )
+                    )
+                }
+            }
+            
             Spacer(modifier = Modifier.height(24.dp))
             
             // Preview section
