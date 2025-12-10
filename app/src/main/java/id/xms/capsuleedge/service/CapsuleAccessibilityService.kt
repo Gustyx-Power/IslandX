@@ -70,6 +70,9 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     private val activeControllers = mutableMapOf<String, MediaController>()
     private val mediaCallbacks = mutableMapOf<String, MediaController.Callback>()
     
+    // Progress polling job for media
+    private var mediaProgressJob: Job? = null
+
     // Charging receiver
     private var chargingReceiver: BroadcastReceiver? = null
     
@@ -171,10 +174,32 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
             AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> {
                 handleNotificationEvent(event)
             }
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                // When user clicks anywhere or window changes, collapse the expanded island
+                handleOutsideTouch(event)
+            }
             else -> { /* Ignore */ }
         }
     }
     
+    /**
+     * Handle touch outside the island - collapse if expanded
+     */
+    private fun handleOutsideTouch(event: AccessibilityEvent) {
+        val currentState = IslandStateRepository.uiState.value
+        val eventPackage = event.packageName?.toString()
+
+        // Only collapse if island is expanded and the click is from another app (not our overlay)
+        if (currentState.displayState == IslandState.EXPANDED &&
+            eventPackage != null &&
+            eventPackage != packageName) {
+            // Collapse the island when user interacts outside
+            IslandStateRepository.collapseIsland()
+            updateTouchHandling(false)
+        }
+    }
+
     override fun onInterrupt() {
         // Handle interruption
     }
@@ -537,6 +562,7 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
             if (currentEvent is IslandEvent.MediaPlayback && 
                 currentEvent.packageName == controller.packageName) {
                 IslandStateRepository.updateMediaPlayState(false)
+                stopMediaProgressPolling()
             }
             return
         }
@@ -566,9 +592,15 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         )
         
         IslandStateRepository.pushEvent(mediaEvent)
+
+        // Start progress polling when playing
+        if (isPlaying) {
+            startMediaProgressPolling()
+        }
     }
     
     private fun cleanupMediaSession() {
+        stopMediaProgressPolling()
         activeControllers.forEach { (pkg, controller) ->
             mediaCallbacks[pkg]?.let { callback ->
                 try {
@@ -642,21 +674,103 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     }
     
     private fun handleMediaAction(action: MediaAction) {
-        val keyCode = when (action) {
-            MediaAction.PLAY_PAUSE -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
-            MediaAction.NEXT -> android.view.KeyEvent.KEYCODE_MEDIA_NEXT
-            MediaAction.PREVIOUS -> android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
+        // Get the currently active media controller
+        val currentEvent = IslandStateRepository.uiState.value.currentEvent
+        val packageName = (currentEvent as? IslandEvent.MediaPlayback)?.packageName
+
+        // First try local controllers, then try MediaListenerService
+        var controller = if (packageName != null) {
+            activeControllers[packageName] ?: MediaListenerService.getController(packageName)
+        } else {
+            activeControllers.values.firstOrNull() ?: MediaListenerService.getAnyActiveController()
         }
-        
-        val downIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-            putExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode))
+
+        controller?.let {
+            val transportControls = it.transportControls
+            when (action) {
+                MediaAction.PLAY_PAUSE -> {
+                    val isPlaying = it.playbackState?.state == PlaybackState.STATE_PLAYING
+                    if (isPlaying) {
+                        transportControls.pause()
+                    } else {
+                        transportControls.play()
+                    }
+                }
+                MediaAction.NEXT -> transportControls.skipToNext()
+                MediaAction.PREVIOUS -> transportControls.skipToPrevious()
+            }
+        } ?: run {
+            // Fallback to broadcast if no controller available
+            val keyCode = when (action) {
+                MediaAction.PLAY_PAUSE -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                MediaAction.NEXT -> android.view.KeyEvent.KEYCODE_MEDIA_NEXT
+                MediaAction.PREVIOUS -> android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
+            }
+
+            val downIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                putExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode))
+            }
+            val upIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                putExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode))
+            }
+
+            sendBroadcast(downIntent)
+            sendBroadcast(upIntent)
         }
-        val upIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-            putExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode))
+    }
+
+    /**
+     * Start polling media progress every 1 second
+     */
+    private fun startMediaProgressPolling() {
+        stopMediaProgressPolling()
+        mediaProgressJob = serviceScope.launch {
+            while (isActive) {
+                val currentEvent = IslandStateRepository.uiState.value.currentEvent
+                if (currentEvent is IslandEvent.MediaPlayback && currentEvent.isPlaying) {
+                    // Try local controllers first, then MediaListenerService
+                    val controller = activeControllers[currentEvent.packageName]
+                        ?: MediaListenerService.getController(currentEvent.packageName)
+                    controller?.playbackState?.let { state ->
+                        if (state.state == PlaybackState.STATE_PLAYING) {
+                            val currentPosition: Long
+
+                            // Check if lastPositionUpdateTime is valid (not 0 and not too old)
+                            val lastUpdateTime = state.lastPositionUpdateTime
+                            val now = System.currentTimeMillis()
+
+                            if (lastUpdateTime > 0 && lastUpdateTime <= now) {
+                                // Calculate current position based on elapsed time
+                                val timeDiff = now - lastUpdateTime
+                                // Only apply time diff if it's reasonable (less than 10 seconds)
+                                if (timeDiff < 10000) {
+                                    val playbackSpeed = if (state.playbackSpeed > 0) state.playbackSpeed else 1f
+                                    currentPosition = (state.position + (timeDiff * playbackSpeed).toLong())
+                                        .coerceIn(0, currentEvent.duration)
+                                } else {
+                                    // Time diff too large, just use the position from state
+                                    currentPosition = state.position.coerceIn(0, currentEvent.duration)
+                                }
+                            } else {
+                                // lastPositionUpdateTime is invalid, just increment by 1 second
+                                currentPosition = (currentEvent.position + 1000).coerceIn(0, currentEvent.duration)
+                            }
+
+                            IslandStateRepository.updateMediaPosition(currentPosition)
+                        }
+                    }
+                }
+                delay(1000)
+            }
         }
-        
-        sendBroadcast(downIntent)
-        sendBroadcast(upIntent)
+    }
+
+    /**
+     * Stop polling media progress
+     */
+    private fun stopMediaProgressPolling() {
+        mediaProgressJob?.cancel()
+        mediaProgressJob = null
     }
 }
 

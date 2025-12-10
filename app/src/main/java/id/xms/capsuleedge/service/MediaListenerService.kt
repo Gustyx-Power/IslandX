@@ -33,6 +33,20 @@ class MediaListenerService : NotificationListenerService() {
         
         fun getInstance(): MediaListenerService? = instance
         
+        /**
+         * Get the MediaController for a specific package
+         */
+        fun getController(packageName: String): MediaController? {
+            return instance?.activeControllers?.get(packageName)
+        }
+
+        /**
+         * Get any active MediaController
+         */
+        fun getAnyActiveController(): MediaController? {
+            return instance?.activeControllers?.values?.firstOrNull()
+        }
+
         fun isServiceEnabled(context: Context): Boolean {
             val componentName = ComponentName(context, MediaListenerService::class.java)
             val enabledListeners = android.provider.Settings.Secure.getString(
