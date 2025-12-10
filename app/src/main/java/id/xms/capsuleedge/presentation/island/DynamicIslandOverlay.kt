@@ -1,5 +1,6 @@
 package id.xms.capsuleedge.presentation.island
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -23,8 +24,8 @@ import id.xms.capsuleedge.service.MediaAction
  * Main Dynamic Island overlay composable.
  * Handles all state transitions with spring-based physics animations.
  * 
- * This composable renders just the island itself - positioning is handled
- * by the WindowManager in CapsuleAccessibilityService.
+ * Works with MATCH_PARENT WindowManager width - island is centered via Box.
+ * Hidden in landscape mode to not disturb video/gaming experience.
  */
 @Composable
 fun DynamicIslandOverlay(
@@ -37,24 +38,25 @@ fun DynamicIslandOverlay(
 ) {
     val config = uiState.config
     
-    // Get screen width for dynamic expanded width calculation
+    // Get screen configuration for width calculation
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp.toFloat()
-    // Expanded width = screen width - minimal margin (4dp total, 2dp per side)
-    // This makes the island reach almost to the screen edges
-    val dynamicExpandedWidth = (screenWidthDp - 4f).coerceAtLeast(280f)
     
-    // Spring animation spec for organic, bouncy feel
+    // Expanded width: screen width with small comfortable margin (12dp each side)
+    val dynamicExpandedWidth = screenWidthDp - 24f
+    
+    // Spring animation spec for organic, bouncy feel (iOS-like)
     val springSpec = spring<Float>(
         dampingRatio = Spring.DampingRatioMediumBouncy,
-        stiffness = Spring.StiffnessLow
+        stiffness = Spring.StiffnessMediumLow
     )
     
     // Calculate target dimensions based on state
+    // For EXPANDED, don't multiply by scale - use full width
     val targetWidth = when (uiState.displayState) {
-        IslandState.COLLAPSED -> config.collapsedWidth
-        IslandState.COMPACT -> config.compactWidth
-        IslandState.EXPANDED -> dynamicExpandedWidth  // Use dynamic screen-based width
+        IslandState.COLLAPSED -> config.collapsedWidth * config.scale
+        IslandState.COMPACT -> config.compactWidth * config.scale
+        IslandState.EXPANDED -> dynamicExpandedWidth  // No scale - full width
     }
     
     val targetHeight = when (uiState.displayState) {
@@ -64,8 +66,9 @@ fun DynamicIslandOverlay(
     }
     
     // Animated dimensions with spring physics
+    // targetWidth already includes scale for COLLAPSED/COMPACT
     val animatedWidth by animateFloatAsState(
-        targetValue = targetWidth * config.scale,
+        targetValue = targetWidth,  // No additional scale multiplication
         animationSpec = springSpec,
         label = "island_width"
     )
@@ -76,12 +79,12 @@ fun DynamicIslandOverlay(
         label = "island_height"
     )
     
-    // Animated corner radius - more round when collapsed, less when expanded
+    // Animated corner radius - pill shape when collapsed, less round when expanded
     val cornerRadius by animateFloatAsState(
         targetValue = when (uiState.displayState) {
-            IslandState.COLLAPSED -> config.cornerRadius
-            IslandState.COMPACT -> config.cornerRadius * 0.9f
-            IslandState.EXPANDED -> config.cornerRadius * 0.8f
+            IslandState.COLLAPSED -> config.collapsedHeight / 2  // Perfect pill shape
+            IslandState.COMPACT -> config.cornerRadius
+            IslandState.EXPANDED -> config.cornerRadius * 0.85f
         },
         animationSpec = springSpec,
         label = "corner_radius"
@@ -92,42 +95,54 @@ fun DynamicIslandOverlay(
         targetValue = when (uiState.displayState) {
             IslandState.COLLAPSED -> 4f
             IslandState.COMPACT -> 8f
-            IslandState.EXPANDED -> 16f
+            IslandState.EXPANDED -> 12f
         },
         animationSpec = tween(300),
         label = "elevation"
     )
     
-    // Main Island Container - just the island, no extra layout
-    // Positioning is handled by WindowManager params
+    // Full width container to center the island
     Box(
         modifier = modifier
-            .size(
-                width = animatedWidth.dp,
-                height = animatedHeight.dp
-            )
-            .shadow(
-                elevation = elevation.dp,
-                shape = RoundedCornerShape(cornerRadius.dp),
-                spotColor = Color.Black.copy(alpha = 0.5f)
-            )
-            .clip(RoundedCornerShape(cornerRadius.dp))
-            .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onTap() },
-                    onLongPress = { onLongPress() }
-                )
-            },
-        contentAlignment = Alignment.Center
+            .fillMaxWidth()
+            .wrapContentHeight(),
+        contentAlignment = Alignment.TopCenter
     ) {
-        // Content based on current event and state
-        IslandContent(
-            event = uiState.currentEvent,
-            displayState = uiState.displayState,
-            onDismiss = onDismiss,
-            onMediaAction = onMediaAction
-        )
+        // The Island capsule
+        Box(
+            modifier = Modifier
+                .width(animatedWidth.dp)
+                .height(animatedHeight.dp)
+                .shadow(
+                    elevation = elevation.dp,
+                    shape = RoundedCornerShape(cornerRadius.dp),
+                    spotColor = Color.Black.copy(alpha = 0.6f),
+                    ambientColor = Color.Black.copy(alpha = 0.3f)
+                )
+                .clip(RoundedCornerShape(cornerRadius.dp))
+                .background(Color.Black)
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onTap() },
+                        onLongPress = { onLongPress() }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            // Content based on current event and state
+            IslandContent(
+                event = uiState.currentEvent,
+                displayState = uiState.displayState,
+                onDismiss = onDismiss,
+                onMediaAction = onMediaAction
+            )
+        }
     }
 }
 
@@ -143,7 +158,6 @@ private fun IslandContent(
 ) {
     when (event) {
         is IslandEvent.Idle -> {
-            // Show minimal camera dot indicator
             CameraIndicator()
         }
         is IslandEvent.Notification -> {
@@ -193,7 +207,6 @@ private fun CameraIndicator() {
             .background(Color(0xFF1A1A1A)),
         contentAlignment = Alignment.Center
     ) {
-        // Subtle camera lens effect
         Box(
             modifier = Modifier
                 .size(6.dp)
