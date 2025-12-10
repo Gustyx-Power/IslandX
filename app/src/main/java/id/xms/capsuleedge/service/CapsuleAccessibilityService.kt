@@ -102,6 +102,19 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         "com.android.vending"
     )
     
+    // Packages to ignore for media sessions (video players, etc)
+    private val ignoredMediaPackages = setOf(
+        "com.google.android.youtube",           // YouTube
+        "com.google.android.youtube.tv",        // YouTube TV
+        "com.google.android.apps.youtube.kids", // YouTube Kids
+        "com.vanced.android.youtube",           // YouTube Vanced
+        "app.revanced.android.youtube",         // YouTube ReVanced
+        "com.google.android.videos",            // Google Play Movies
+        "com.netflix.mediaclient",              // Netflix
+        "com.amazon.avod.thirdpartyclient",     // Amazon Prime Video
+        "com.disney.disneyplus"                 // Disney+
+    )
+    
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry
     
@@ -740,6 +753,11 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     private fun updateMediaState(controller: MediaController) {
         val metadata = controller.metadata ?: return
         val playbackState = controller.playbackState ?: return
+        
+        // Ignore video players like YouTube
+        if (controller.packageName in ignoredMediaPackages) {
+            return
+        }
         
         // Check if this package is suppressed (user stopped it)
         if (controller.packageName in suppressedMediaPackages) {
