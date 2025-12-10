@@ -46,14 +46,17 @@ object IslandStateRepository {
     
     /**
      * Display a specific event in the Island
-     * Notifications auto-expand to show full content
+     * Key events auto-expand to show rich UI
      */
     fun displayEvent(event: IslandEvent) {
         _uiState.update { currentState ->
-            val displayState = when {
-                event is IslandEvent.Idle -> IslandState.COLLAPSED
-                // Auto-expand notifications so user can see full message and interact
-                event is IslandEvent.Notification -> IslandState.EXPANDED
+            val displayState = when (event) {
+                is IslandEvent.Idle -> IslandState.COLLAPSED
+                // Auto-expand these events to show full content
+                is IslandEvent.Notification -> IslandState.EXPANDED
+                is IslandEvent.Charging -> IslandState.EXPANDED
+                is IslandEvent.MediaPlayback -> IslandState.EXPANDED
+                // Other events use compact
                 else -> IslandState.COMPACT
             }
             
@@ -78,16 +81,29 @@ object IslandStateRepository {
     }
     
     /**
-     * Collapse the Island back to compact or collapsed state
+     * Collapse the Island with staged animation:
+     * EXPANDED → COMPACT (brief pause) → COLLAPSED
      */
     fun collapseIsland() {
-        _uiState.update { currentState ->
-            val newState = if (currentState.currentEvent is IslandEvent.Idle) {
-                IslandState.COLLAPSED
-            } else {
-                IslandState.COLLAPSED // Go to collapsed, not compact
+        val currentState = _uiState.value.displayState
+        
+        when (currentState) {
+            IslandState.EXPANDED -> {
+                // First stage: go to COMPACT
+                _uiState.update { it.copy(displayState = IslandState.COMPACT) }
+                // Then after delay, go to COLLAPSED
+                scope.launch {
+                    delay(300) // Brief pause at COMPACT size
+                    _uiState.update { it.copy(displayState = IslandState.COLLAPSED) }
+                }
             }
-            currentState.copy(displayState = newState)
+            IslandState.COMPACT -> {
+                // Already at COMPACT, just go to COLLAPSED
+                _uiState.update { it.copy(displayState = IslandState.COLLAPSED) }
+            }
+            IslandState.COLLAPSED -> {
+                // Already collapsed, do nothing
+            }
         }
     }
     
