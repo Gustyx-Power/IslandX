@@ -26,6 +26,7 @@ class SettingsRepository(private val context: Context) {
         private val KEY_OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
         private val KEY_AUTO_START = booleanPreferencesKey("auto_start")
         private val KEY_FIRST_LAUNCH = booleanPreferencesKey("first_launch")
+        private val KEY_HIDE_IN_LANDSCAPE = booleanPreferencesKey("hide_in_landscape")
     }
     
     val configFlow: Flow<IslandConfig> = context.dataStore.data.map { preferences ->
@@ -53,6 +54,10 @@ class SettingsRepository(private val context: Context) {
     
     val isFirstLaunch: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[KEY_FIRST_LAUNCH] ?: true
+    }
+    
+    val hideInLandscape: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_HIDE_IN_LANDSCAPE] ?: true  // Default: hide in landscape
     }
     
     suspend fun saveConfig(config: IslandConfig) {
@@ -85,6 +90,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun setFirstLaunchComplete() {
         context.dataStore.edit { preferences ->
             preferences[KEY_FIRST_LAUNCH] = false
+        }
+    }
+    
+    suspend fun setHideInLandscape(hide: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_HIDE_IN_LANDSCAPE] = hide
         }
     }
     
