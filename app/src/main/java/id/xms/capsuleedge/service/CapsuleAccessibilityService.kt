@@ -79,6 +79,15 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     // Charging receiver
     private var chargingReceiver: BroadcastReceiver? = null
     
+    // Safe layout update tracking
+    private var isViewAttached = false
+    private var overlayParams: WindowManager.LayoutParams? = null
+    
+    // Orientation/landscape detection
+    private var orientationListener: android.view.OrientationEventListener? = null
+    private var isCurrentlyLandscape = false
+    private var hideInLandscapeEnabled = true  // Setting from preferences
+    
     // Track recently shown notifications to avoid duplicates
     private val recentNotifications = mutableSetOf<String>()
     
@@ -141,6 +150,7 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         hideOverlay()
         cleanupReceivers()
         cleanupMediaSession()
+        cleanupOrientationListener()
         serviceScope.cancel()
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         IslandStateRepository.setServiceRunning(false)
@@ -154,13 +164,25 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         // Setup event listeners
         setupChargingReceiver()
         setupMediaSessionListener()
+        setupOrientationListener()  // Detect landscape to hide overlay
         
-        // Collect config updates and update overlay position
+        // Collect config updates and safely update overlay position
         serviceScope.launch {
             settingsRepository.configFlow.collectLatest { config ->
                 IslandStateRepository.updateConfig(config)
-                // Update overlay position when config changes
+                // Safely update overlay position when config changes
                 updateOverlayPosition(config.offsetX, config.offsetY)
+            }
+        }
+        
+        // Collect hide in landscape setting
+        serviceScope.launch {
+            settingsRepository.hideInLandscape.collectLatest { hide ->
+                hideInLandscapeEnabled = hide
+                // If we're currently in landscape and setting changed, update visibility
+                if (isCurrentlyLandscape) {
+                    setOverlayVisibility(!hide)
+                }
             }
         }
         
@@ -183,6 +205,34 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
                 handleOutsideTouch(event)
             }
             else -> { /* Ignore */ }
+        }
+    }
+    
+    /**
+     * Called when device configuration changes (including orientation)
+     * This is more reliable than OrientationEventListener for detecting
+     * when user exits games/videos back to portrait
+     */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        
+        val isLandscape = newConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        
+        Log.d(TAG, "Configuration changed - landscape: $isLandscape")
+        
+        // Update state and visibility
+        if (isLandscape != isCurrentlyLandscape) {
+            isCurrentlyLandscape = isLandscape
+            
+            if (hideInLandscapeEnabled) {
+                if (isLandscape) {
+                    Log.d(TAG, "Entering landscape - hiding overlay")
+                    setOverlayVisibility(false)
+                } else {
+                    Log.d(TAG, "Entering portrait - showing overlay")
+                    setOverlayVisibility(true)
+                }
+            }
         }
     }
     
@@ -224,11 +274,11 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     // ==================== OVERLAY MANAGEMENT ====================
     
     private fun showOverlay() {
-        if (overlayView != null) return
+        if (overlayView != null || isViewAttached) return
         
         Log.d(TAG, "Showing overlay with TYPE_ACCESSIBILITY_OVERLAY")
         
-        val params = createWindowParams()
+        overlayParams = createWindowParams()
         
         overlayView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@CapsuleAccessibilityService)
@@ -250,16 +300,26 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         }
         
         try {
-            windowManager.addView(overlayView, params)
+            windowManager.addView(overlayView, overlayParams)
+            isViewAttached = true
             lifecycleRegistry.currentState = Lifecycle.State.RESUMED
             IslandStateRepository.setServiceRunning(true)
             Log.d(TAG, "Overlay added successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add overlay", e)
+            isViewAttached = false
+            overlayView = null
+            overlayParams = null
         }
     }
     
     private fun hideOverlay() {
+        if (!isViewAttached) {
+            overlayView = null
+            overlayParams = null
+            return
+        }
+        
         overlayView?.let {
             try {
                 windowManager.removeView(it)
@@ -269,23 +329,97 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
             }
         }
         overlayView = null
+        overlayParams = null
+        isViewAttached = false
+    }
+    
+    /**
+     * Setup orientation listener to hide overlay in landscape mode
+     * This prevents the capsule from blocking video/game content
+     */
+    private fun setupOrientationListener() {
+        orientationListener = object : android.view.OrientationEventListener(this) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                
+                // Use actual Configuration for more reliable detection
+                val config = resources.configuration
+                val isLandscape = config.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                
+                // Only act if orientation state changed
+                if (isLandscape != isCurrentlyLandscape) {
+                    isCurrentlyLandscape = isLandscape
+                    
+                    // Only hide if the setting is enabled
+                    if (hideInLandscapeEnabled) {
+                        if (isLandscape) {
+                            Log.d(TAG, "Landscape detected - hiding overlay")
+                            setOverlayVisibility(false)
+                        } else {
+                            Log.d(TAG, "Portrait detected - showing overlay")
+                            setOverlayVisibility(true)
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (orientationListener?.canDetectOrientation() == true) {
+            orientationListener?.enable()
+            Log.d(TAG, "Orientation listener enabled")
+        }
+        
+        // Also check initial orientation
+        checkCurrentOrientation()
+    }
+    
+    /**
+     * Check current orientation and update visibility
+     */
+    private fun checkCurrentOrientation() {
+        val config = resources.configuration
+        isCurrentlyLandscape = config.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        
+        if (hideInLandscapeEnabled && isCurrentlyLandscape) {
+            setOverlayVisibility(false)
+        }
+    }
+    
+    /**
+     * Set overlay visibility without destroying it
+     */
+    private fun setOverlayVisibility(visible: Boolean) {
+        overlayView?.let { view ->
+            handler.post {
+                view.visibility = if (visible) android.view.View.VISIBLE else android.view.View.GONE
+            }
+        }
+    }
+    
+    /**
+     * Cleanup orientation listener
+     */
+    private fun cleanupOrientationListener() {
+        orientationListener?.disable()
+        orientationListener = null
     }
     
     /**
      * Create window params for the overlay
-     * Uses WRAP_CONTENT so the overlay is exactly the size of the island
-     * Position is controlled via x/y params based on user settings
+     * Uses MATCH_PARENT width to allow full-width expansion to screen edges
+     * WRAP_CONTENT height - Compose UI handles the sizing
      */
     private fun createWindowParams(): WindowManager.LayoutParams {
         val type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
         
         return WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT,   // Full width for edge-to-edge
+            WindowManager.LayoutParams.WRAP_CONTENT,   // Height adapts to content
             type,
-            // NOT_FOCUSABLE: doesn't take keyboard focus
-            // NOT_TOUCH_MODAL: touches outside the overlay go to apps below
-            // LAYOUT_NO_LIMITS: allows positioning anywhere including above status bar
+            // FLAG_NOT_FOCUSABLE: doesn't take keyboard focus
+            // FLAG_NOT_TOUCH_MODAL: touches outside the island go to apps below
+            // FLAG_LAYOUT_IN_SCREEN: layout relative to screen coordinates
+            // FLAG_LAYOUT_NO_LIMITS: allows drawing above status bar
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -293,27 +427,35 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            // Initial position - will be updated by updateOverlayPosition
             x = 0
-            y = dpToPx(10) // Just below notch by default
+            y = dpToPx(8) // Small offset from top - user can adjust via settings
         }
     }
     
     /**
-     * Update the overlay position based on user settings
-     * Called when config changes
+     * Safely update the overlay position based on user settings
+     * Uses safe checks to prevent crashes when view is not attached
      */
     fun updateOverlayPosition(offsetX: Float, offsetY: Float) {
-        overlayView?.let { view ->
-            val params = view.layoutParams as? WindowManager.LayoutParams ?: return
-            params.x = dpToPx(offsetX.toInt())
-            params.y = dpToPx(offsetY.toInt())
-            
-            try {
-                windowManager.updateViewLayout(view, params)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update overlay position", e)
-            }
+        // Safety check - don't update if view not attached
+        if (!isViewAttached || overlayView == null) {
+            Log.w(TAG, "Cannot update position: view not attached")
+            return
+        }
+        
+        val view = overlayView ?: return
+        val params = overlayParams ?: return
+        
+        params.x = dpToPx(offsetX.toInt())
+        params.y = dpToPx(offsetY.toInt())
+        
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "View not attached to window manager", e)
+            isViewAttached = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update overlay position: ${e.message}")
         }
     }
     
@@ -330,21 +472,31 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         return (dp * resources.displayMetrics.density).toInt()
     }
     
+    /**
+     * Safely update touch handling flags
+     */
     fun updateTouchHandling(interceptTouch: Boolean) {
-        overlayView?.let { view ->
-            val params = view.layoutParams as? WindowManager.LayoutParams ?: return
-            
-            if (interceptTouch) {
-                params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-            } else {
-                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            }
-            
-            try {
-                windowManager.updateViewLayout(view, params)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        // Safety check - don't update if view not attached
+        if (!isViewAttached || overlayView == null) {
+            return
+        }
+        
+        val view = overlayView ?: return
+        val params = overlayParams ?: return
+        
+        if (interceptTouch) {
+            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        } else {
+            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "View not attached to window manager", e)
+            isViewAttached = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update touch handling: ${e.message}")
         }
     }
     
