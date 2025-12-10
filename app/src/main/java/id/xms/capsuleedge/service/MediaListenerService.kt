@@ -31,6 +31,19 @@ class MediaListenerService : NotificationListenerService() {
         @Volatile
         private var instance: MediaListenerService? = null
         
+        // Packages to ignore for media sessions (video players, etc)
+        private val ignoredMediaPackages = setOf(
+            "com.google.android.youtube",           // YouTube
+            "com.google.android.youtube.tv",        // YouTube TV
+            "com.google.android.apps.youtube.kids", // YouTube Kids
+            "com.vanced.android.youtube",           // YouTube Vanced
+            "app.revanced.android.youtube",         // YouTube ReVanced
+            "com.google.android.videos",            // Google Play Movies
+            "com.netflix.mediaclient",              // Netflix
+            "com.amazon.avod.thirdpartyclient",     // Amazon Prime Video
+            "com.disney.disneyplus"                 // Disney+
+        )
+        
         fun getInstance(): MediaListenerService? = instance
         
         /**
@@ -154,6 +167,11 @@ class MediaListenerService : NotificationListenerService() {
     }
     
     private fun updateMediaState(controller: MediaController) {
+        // Ignore video players like YouTube
+        if (controller.packageName in ignoredMediaPackages) {
+            return
+        }
+        
         val metadata = controller.metadata
         val playbackState = controller.playbackState
         
