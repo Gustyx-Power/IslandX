@@ -1,3 +1,50 @@
 <resources>
     <string name="app_name">Capsule Edge</string>
+    
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">CapsuleEdge needs accessibility access to read notifications and display them in the Dynamic Island overlay.</string>
+    
+    <!-- Permissions -->
+    <string name="permission_overlay_title">Display Over Apps</string>
+    <string name="permission_overlay_desc">Required to show the Dynamic Island overlay on your screen.</string>
+    <string name="permission_accessibility_title">Accessibility Service</string>
+    <string name="permission_accessibility_desc">Required to read notifications and display them in the Island.</string>
+    <string name="permission_notification_title">Notification Access</string>
+    <string name="permission_notification_desc">Required to show persistent service notification.</string>
+    <string name="permission_battery_title">Battery Optimization</string>
+    <string name="permission_battery_desc">Disable battery optimization to keep the Island running.</string>
+    <string name="permission_media_title">Media Listener</string>
+    <string name="permission_media_desc">Required to detect music playback from apps like Spotify.</string>
+    
+    <!-- Setup Screen -->
+    <string name="setup_title">Setup CapsuleEdge</string>
+    <string name="setup_subtitle">Grant permissions to enable Dynamic Island</string>
+    <string name="btn_grant">Grant</string>
+    <string name="btn_granted">Granted</string>
+    <string name="btn_continue">Continue</string>
+    <string name="btn_start_service">Start CapsuleEdge</string>
+    
+    <!-- Island States -->
+    <string name="charging">Charging</string>
+    <string name="bluetooth_connected">Connected</string>
+    <string name="silent_mode">Silent Mode</string>
+    <string name="vibrate_mode">Vibrate Mode</string>
+    <string name="normal_mode">Sound On</string>
+    
+    <!-- Media -->
+    <string name="now_playing">Now Playing</string>
+    <string name="unknown_artist">Unknown Artist</string>
+    <string name="unknown_title">Unknown Track</string>
+    
+    <!-- Service Notification -->
+    <string name="notification_channel_name">CapsuleEdge Service</string>
+    <string name="notification_channel_desc">Keeps CapsuleEdge running in the background</string>
+    <string name="notification_title">CapsuleEdge is active</string>
+    <string name="notification_text">Tap to open settings</string>
+    
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_position">Island Position</string>
+    <string name="settings_size">Island Size</string>
+    <string name="settings_enabled">Enable CapsuleEdge</string>
 </resources>

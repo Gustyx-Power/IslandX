@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Outer capsule shape -->
+    <path
+        android:pathData="M7,7 C7,4.79 9.24,3 12,3 C14.76,3 17,4.79 17,7 L17,17 C17,19.21 14.76,21 12,21 C9.24,21 7,19.21 7,17 L7,7 Z"
+        android:fillColor="#FFFFFF"/>
+    <!-- Inner dark area -->
+    <path
+        android:pathData="M9,8 C9,6.34 10.34,5 12,5 C13.66,5 15,6.34 15,8 L15,16 C15,17.66 13.66,19 12,19 C10.34,19 9,17.66 9,16 L9,8 Z"
+        android:fillColor="#1A1A1A"/>
+    <!-- Camera dot -->
+    <path
+        android:pathData="M12,8 m-1.5,0 a1.5,1.5 0,1 1,3 0 a1.5,1.5 0,1 1,-3 0"
+        android:fillColor="#333333"/>
+</vector>
