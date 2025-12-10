@@ -91,6 +91,9 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
     // Track recently shown notifications to avoid duplicates
     private val recentNotifications = mutableSetOf<String>()
     
+    // Packages to temporarily suppress media events (after user stops media)
+    private val suppressedMediaPackages = mutableSetOf<String>()
+    
     // Packages to ignore (system notifications, etc)
     private val ignoredPackages = setOf(
         "android",
@@ -738,6 +741,17 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
         val metadata = controller.metadata ?: return
         val playbackState = controller.playbackState ?: return
         
+        // Check if this package is suppressed (user stopped it)
+        if (controller.packageName in suppressedMediaPackages) {
+            // If media is stopped/paused, remove from suppressed list
+            val isStopped = playbackState.state == PlaybackState.STATE_STOPPED ||
+                           playbackState.state == PlaybackState.STATE_NONE
+            if (isStopped) {
+                suppressedMediaPackages.remove(controller.packageName)
+            }
+            return
+        }
+        
         val isPlaying = playbackState.state == PlaybackState.STATE_PLAYING
         
         if (!isPlaying) {
@@ -895,6 +909,20 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
                 }
                 MediaAction.NEXT -> transportControls.skipToNext()
                 MediaAction.PREVIOUS -> transportControls.skipToPrevious()
+                MediaAction.STOP -> {
+                    // Add package to suppressed list to prevent re-appearing
+                    packageName?.let { pkg ->
+                        suppressedMediaPackages.add(pkg)
+                    }
+                    
+                    // Stop the media and dismiss the event from capsule
+                    transportControls.stop()
+                    stopMediaProgressPolling()
+                    cancelMediaPauseTimeout()
+                    
+                    // Clear all media events from queue and go to idle
+                    IslandStateRepository.clearMediaEvents()
+                }
             }
         } ?: run {
             // Fallback to broadcast if no controller available
@@ -902,6 +930,7 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
                 MediaAction.PLAY_PAUSE -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
                 MediaAction.NEXT -> android.view.KeyEvent.KEYCODE_MEDIA_NEXT
                 MediaAction.PREVIOUS -> android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                MediaAction.STOP -> android.view.KeyEvent.KEYCODE_MEDIA_STOP
             }
 
             val downIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
@@ -913,6 +942,18 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
 
             sendBroadcast(downIntent)
             sendBroadcast(upIntent)
+            
+            // Also dismiss the event for STOP action
+            if (action == MediaAction.STOP) {
+                // Add package to suppressed list to prevent re-appearing
+                packageName?.let { pkg ->
+                    suppressedMediaPackages.add(pkg)
+                }
+                
+                stopMediaProgressPolling()
+                cancelMediaPauseTimeout()
+                IslandStateRepository.clearMediaEvents()
+            }
         }
     }
 
@@ -1001,5 +1042,6 @@ class CapsuleAccessibilityService : AccessibilityService(), LifecycleOwner, Save
 enum class MediaAction {
     PLAY_PAUSE,
     NEXT,
-    PREVIOUS
+    PREVIOUS,
+    STOP
 }
