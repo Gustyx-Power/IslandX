@@ -101,8 +101,7 @@ private fun ExpandedNotificationContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+            .padding(12.dp)
     ) {
         // Header with app info and close button
         Row(
@@ -110,9 +109,11 @@ private fun ExpandedNotificationContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // App info on left
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f)
             ) {
                 event.appIcon?.let { icon ->
                     val bitmap = remember(icon) {
@@ -122,34 +123,50 @@ private fun ExpandedNotificationContent(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = event.appName,
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(24.dp)
+                            .clip(RoundedCornerShape(6.dp))
                     )
                 }
                 
                 Text(
                     text = event.appName,
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 12.sp
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.size(24.dp)
+            // Small X button on right
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = "Dismiss",
-                    tint = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.size(16.dp)
-                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(22.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Dismiss",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
         }
         
-        // Notification content
-        Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        // Main notification content area
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Large icon if available
             event.largeIcon?.let { largeIcon ->
@@ -158,51 +175,65 @@ private fun ExpandedNotificationContent(
                     contentDescription = null,
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(RoundedCornerShape(10.dp)),
                     contentScale = ContentScale.Crop
                 )
             }
             
-            Text(
-                text = event.title,
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            
-            Text(
-                text = event.text,
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 14.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
-            )
+            // Message content - takes most space
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = event.title,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                
+                Text(
+                    text = event.text,
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 13.sp,
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp
+                )
+            }
         }
         
-        // Action hint
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color(0xFF1E88E5),
-                            Color(0xFF00ACC1)
-                        )
-                    ),
-                    RoundedCornerShape(12.dp)
-                )
-                .padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center
+        Spacer(modifier = Modifier.height(6.dp))
+        
+        // Small action button on the right
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Tap to open & reply",
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Box(
+                modifier = Modifier
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFF1E88E5),
+                                Color(0xFF00ACC1)
+                            )
+                        ),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Open",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }
