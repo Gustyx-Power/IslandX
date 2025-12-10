@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import id.xms.capsuleedge.domain.model.IslandEvent
 import id.xms.capsuleedge.domain.model.IslandState
@@ -36,6 +37,13 @@ fun DynamicIslandOverlay(
 ) {
     val config = uiState.config
     
+    // Get screen width for dynamic expanded width calculation
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp.toFloat()
+    // Expanded width = screen width - minimal margin (4dp total, 2dp per side)
+    // This makes the island reach almost to the screen edges
+    val dynamicExpandedWidth = (screenWidthDp - 4f).coerceAtLeast(280f)
+    
     // Spring animation spec for organic, bouncy feel
     val springSpec = spring<Float>(
         dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -46,7 +54,7 @@ fun DynamicIslandOverlay(
     val targetWidth = when (uiState.displayState) {
         IslandState.COLLAPSED -> config.collapsedWidth
         IslandState.COMPACT -> config.compactWidth
-        IslandState.EXPANDED -> config.expandedWidth
+        IslandState.EXPANDED -> dynamicExpandedWidth  // Use dynamic screen-based width
     }
     
     val targetHeight = when (uiState.displayState) {
