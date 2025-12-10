@@ -3,6 +3,7 @@ package id.xms.capsuleedge.data.repository
 import id.xms.capsuleedge.domain.model.IslandEvent
 import id.xms.capsuleedge.domain.model.IslandState
 import id.xms.capsuleedge.domain.model.IslandUiState
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +20,10 @@ object IslandStateRepository {
     
     private val _eventQueue = MutableStateFlow<List<IslandEvent>>(emptyList())
     val eventQueue: StateFlow<List<IslandEvent>> = _eventQueue.asStateFlow()
+    
+    // Coroutine scope for media pause timeout
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var mediaPauseTimeoutJob: Job? = null
     
     /**
      * Push a new event to be displayed in the Island
@@ -158,8 +163,11 @@ object IslandStateRepository {
     
     /**
      * Update media playback state
+     * When paused, starts 1 minute timeout to auto-dismiss
      */
     fun updateMediaPlayState(isPlaying: Boolean) {
+        val currentEvent = _uiState.value.currentEvent
+        
         _uiState.update { currentState ->
             val event = currentState.currentEvent
             if (event is IslandEvent.MediaPlayback) {
@@ -170,5 +178,43 @@ object IslandStateRepository {
                 currentState
             }
         }
+        
+        // Handle pause timeout
+        if (currentEvent is IslandEvent.MediaPlayback) {
+            if (isPlaying) {
+                // Music resumed, cancel any pause timeout
+                cancelMediaPauseTimeout()
+            } else {
+                // Music paused, start 1 minute timeout to dismiss
+                startMediaPauseTimeout(currentEvent.packageName)
+            }
+        }
+    }
+    
+    /**
+     * Start timeout to dismiss media after 1 minute of pause
+     */
+    private fun startMediaPauseTimeout(packageName: String) {
+        cancelMediaPauseTimeout() // Cancel any existing timeout
+        
+        mediaPauseTimeoutJob = scope.launch {
+            delay(60_000) // Wait 1 minute (60 seconds)
+            
+            val currentEvent = _uiState.value.currentEvent
+            if (currentEvent is IslandEvent.MediaPlayback && 
+                currentEvent.packageName == packageName &&
+                !currentEvent.isPlaying) {
+                // Still paused after 1 minute, dismiss the media event
+                dismissCurrentEvent()
+            }
+        }
+    }
+    
+    /**
+     * Cancel media pause timeout
+     */
+    private fun cancelMediaPauseTimeout() {
+        mediaPauseTimeoutJob?.cancel()
+        mediaPauseTimeoutJob = null
     }
 }
