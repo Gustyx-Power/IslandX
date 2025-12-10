@@ -141,6 +141,23 @@ object IslandStateRepository {
     }
     
     /**
+     * Clear all media events from queue and return to idle if current is media
+     */
+    fun clearMediaEvents() {
+        // Remove all media events from queue
+        _eventQueue.update { queue ->
+            queue.filterNot { it is IslandEvent.MediaPlayback }
+        }
+        
+        // If current event is media, go to idle
+        val currentEvent = _uiState.value.currentEvent
+        if (currentEvent is IslandEvent.MediaPlayback) {
+            val nextEvent = _eventQueue.value.firstOrNull() ?: IslandEvent.Idle
+            displayEvent(nextEvent)
+        }
+    }
+    
+    /**
      * Update service running state
      */
     fun setServiceRunning(running: Boolean) {
